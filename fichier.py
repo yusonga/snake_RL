@@ -7,7 +7,7 @@ class SnakeEnv:
         pygame.init()
         self.largeur_ecran = 600
         self.hauteur_ecran = 400
-        self.taille_bloc = 10
+        self.taille_bloc = 40
         self.vitesse_serpent = 15
         self.fenetre = pygame.display.set_mode((self.largeur_ecran, self.hauteur_ecran))
         pygame.display.set_caption("Snake AI")
@@ -20,8 +20,8 @@ class SnakeEnv:
 
     def reset(self):
         """ Réinitialiser l'état du jeu """
-        self.x = self.largeur_ecran / 2
-        self.y = self.hauteur_ecran / 2
+        self.x = round(random.randrange(0, self.largeur_ecran - self.taille_bloc) / self.taille_bloc) * self.taille_bloc
+        self.y = round(random.randrange(0, self.hauteur_ecran - self.taille_bloc) / self.taille_bloc) * self.taille_bloc
         self.x_changement = 0
         self.y_changement = 0
         self.serpent = [[self.x, self.y]]
@@ -32,8 +32,8 @@ class SnakeEnv:
 
     def generer_nourriture(self):
         """ Générer une nouvelle position de nourriture """
-        return [round(random.randrange(0, self.largeur_ecran - self.taille_bloc) / 10.0) * 10.0,
-                round(random.randrange(0, self.hauteur_ecran - self.taille_bloc) / 10.0) * 10.0]
+        return [round(random.randrange(0, self.largeur_ecran - self.taille_bloc) / self.taille_bloc) * self.taille_bloc,
+                round(random.randrange(0, self.hauteur_ecran - self.taille_bloc) / self.taille_bloc) * self.taille_bloc]
 
     def get_state(self):
         """ Retourner un vecteur d'état représentant la situation actuelle """
@@ -141,18 +141,46 @@ class DQN:
             return random.choice(self.env.actions)  # Exploration
         q_values = self.model.predict(state)
         return np.argmax(q_values[0])  # Exploitation
-
+    
     def replay(self):
         """Entraîne le modèle sur un échantillon de la mémoire"""
         if len(self.memory) < self.batch_size:
             return
+
+        # Échantillonne un batch de mémoire
+        minibatch = random.sample(self.memory, self.batch_size)
         
-        # Sélectionne un minibatch aléatoire
+        # Prépare les tableaux pour les entrées et les cibles
+        states = np.zeros((self.batch_size, 4))  # Remplace self.state_size par la taille réelle de l'état
+        targets = np.zeros((self.batch_size, 4))  # Remplace self.action_size par la taille réelle des actions
+        
+        for i in range(self.batch_size):
+            state, action, reward, next_state, done = minibatch[i]
+            states[i] = state
+            
+            # Si l'épisode est terminé, la récompense est -10
+            if done:
+                targets[i] = self.model.predict(state)  # Prédire les valeurs Q pour l'état actuel
+                targets[i][action] = reward  # Récompense pour l'action prise
+            else:
+                # Prédire les valeurs Q pour l'état suivant
+                target_next = self.model.predict(next_state)
+                targets[i] = self.model.predict(state)  # Prédire les valeurs Q pour l'état actuel
+                targets[i][action] = reward + self.gamma * np.max(target_next)  # Mise à jour avec la récompense
+            
+        # Entraîne le modèle avec le batch
+        self.model.fit(states, targets, epochs=1, verbose=0)
+        
+
+
+
+
+
        
 env = SnakeEnv()  # Remplace par ton environnement Snake
 agent = DQN(env)
 
-episodes = 1000 # Nombre d'épisodes d'entraînement
+episodes = 5 # Nombre d'épisodes d'entraînement
 batch_size = 32  # Taille des lots pour l'entraînement
 
 for e in range(episodes):
@@ -173,9 +201,13 @@ for e in range(episodes):
             break
         
         if len(agent.memory) > batch_size:
+            print("episode",episodes,"step",time)
             agent.replay()  # Entraîner le modèle avec un batch
 
-import pygame  # Assurez-vous d'importer pygame
+
+
+import numpy as np
+import pygame
 
 def play_snake(env, agent, episodes=1, render=True):
     """Fait jouer l'agent au jeu Snake."""
@@ -188,6 +220,11 @@ def play_snake(env, agent, episodes=1, render=True):
         
         while not done:
             if render:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:  # Vérifie si l'utilisateur ferme la fenêtre
+                        pygame.quit()
+                        return  # Sortir de la fonction
+            
                 env.render()  # Affiche le jeu à chaque étape
             
             # L'agent choisit une action
@@ -203,11 +240,12 @@ def play_snake(env, agent, episodes=1, render=True):
             
             # Si le jeu est terminé (le serpent est mort)
             if done:
-                print(f"Episode: {episode+1}, Score: {total_reward}")
+                print(f"Episode: {episode + 1}, Score: {total_reward}")
                 break
 
     # Fermer Pygame correctement
-    pygame.quit()  # Ajoutez cette ligne pour fermer Pygame
+    pygame.quit()  # Fermer Pygame à la fin
 
-
-play_snake(env, agent, episodes=5, render=True)
+# Assurez-vous de démarrer Pygame avant de jouer
+pygame.init()  # Initialiser Pygame
+play_snake(env, agent, episodes=20, render=True)
